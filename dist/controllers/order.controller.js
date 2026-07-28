@@ -9,6 +9,7 @@ const db_1 = __importDefault(require("../config/db"));
 const catchAsync_1 = __importDefault(require("../utils/catchAsync"));
 const appError_1 = __importDefault(require("../utils/appError"));
 const coupon_service_1 = __importDefault(require("../services/coupon.service"));
+const payment_service_1 = __importDefault(require("../services/payment.service"));
 const orderItemSchema = zod_1.z.object({
     variantId: zod_1.z.string().regex(/^[0-9a-fA-F]{24}$/, "Invalid Variant ID format"),
     quantity: zod_1.z.number().int().positive("Quantity must be greater than 0"),
@@ -25,6 +26,7 @@ const checkoutSchema = zod_1.z.object({
     items: zod_1.z.array(orderItemSchema).min(1, "Order must contain at least one item"),
     shippingAddress: shippingAddressSchema,
     paymentMethod: zod_1.z.enum(["COD", "DIGITAL"]).optional(),
+    paymentGateway: zod_1.z.enum(["SSLCOMMERZ", "BKASH"]).optional(),
     couponCode: zod_1.z.string().optional(),
 });
 const orderStatusUpdateSchema = zod_1.z.object({
@@ -75,7 +77,8 @@ exports.createOrder = (0, catchAsync_1.default)(async (req, res) => {
         }
         // Call expandable coupon validation service
         const discount = await coupon_service_1.default.validateAndCalculateDiscount(data.couponCode, subtotal);
-        const finalAmount = Math.max(0, subtotal - discount);
+        const shippingFee = data.shippingAddress.state.toLowerCase() === "dhaka" ? 80.0 : 120.0;
+        const finalAmount = Math.max(0, subtotal - discount) + shippingFee;
         // Persist final order details
         return tx.order.create({
             data: {
@@ -88,6 +91,41 @@ exports.createOrder = (0, catchAsync_1.default)(async (req, res) => {
             },
         });
     });
+    // Handle Payment Gateway Initiation if paymentMethod is DIGITAL
+    if (newOrder.paymentMethod === "DIGITAL") {
+        try {
+            const gateway = data.paymentGateway || "SSLCOMMERZ";
+            let paymentUrl = "";
+            if (gateway === "SSLCOMMERZ") {
+                paymentUrl = await payment_service_1.default.initiateSSLCommerzPayment(newOrder.id, newOrder.totalAmount, {
+                    name: req.user.name || "Customer",
+                    email: req.user.email || "customer@example.com",
+                    phone: newOrder.shippingAddress.phone,
+                    street: newOrder.shippingAddress.street,
+                    city: newOrder.shippingAddress.city,
+                    state: newOrder.shippingAddress.state,
+                    zipCode: newOrder.shippingAddress.zipCode,
+                });
+            }
+            else if (gateway === "BKASH") {
+                const bkashRes = await payment_service_1.default.createBKashPayment(newOrder.id, newOrder.totalAmount);
+                paymentUrl = bkashRes.bkashURL;
+            }
+            return res.status(201).json({
+                status: "success",
+                data: newOrder,
+                paymentUrl,
+            });
+        }
+        catch (err) {
+            // Return order but indicate payment initiation failure
+            return res.status(201).json({
+                status: "success",
+                data: newOrder,
+                paymentError: err.message || "Failed to initiate payment gateway",
+            });
+        }
+    }
     res.status(201).json({
         status: "success",
         data: newOrder,
@@ -101,10 +139,23 @@ exports.getMyOrders = (0, catchAsync_1.default)(async (req, res) => {
         where: { userId: req.user.id },
         orderBy: { createdAt: "desc" },
     });
+    const allVariantIds = Array.from(new Set(orders.flatMap((order) => order.items.map((item) => item.variantId))));
+    const variants = await db_1.default.productVariant.findMany({
+        where: { id: { in: allVariantIds } },
+        select: { id: true, productId: true },
+    });
+    const variantToProductMap = new Map(variants.map((v) => [v.id, v.productId]));
+    const ordersWithProductId = orders.map((order) => ({
+        ...order,
+        items: order.items.map((item) => ({
+            ...item,
+            productId: variantToProductMap.get(item.variantId) || null,
+        })),
+    }));
     res.status(200).json({
         status: "success",
         results: orders.length,
-        data: orders,
+        data: ordersWithProductId,
     });
 });
 exports.getOrderById = (0, catchAsync_1.default)(async (req, res) => {
@@ -127,9 +178,22 @@ exports.getOrderById = (0, catchAsync_1.default)(async (req, res) => {
     if (req.user.role === "USER" && order.userId !== req.user.id) {
         throw new appError_1.default("You do not have permission to view this order.", 403);
     }
+    const variantIds = order.items.map((item) => item.variantId);
+    const variants = await db_1.default.productVariant.findMany({
+        where: { id: { in: variantIds } },
+        select: { id: true, productId: true },
+    });
+    const variantToProductMap = new Map(variants.map((v) => [v.id, v.productId]));
+    const orderWithProductId = {
+        ...order,
+        items: order.items.map((item) => ({
+            ...item,
+            productId: variantToProductMap.get(item.variantId) || null,
+        })),
+    };
     res.status(200).json({
         status: "success",
-        data: order,
+        data: orderWithProductId,
     });
 });
 exports.updateOrderStatus = (0, catchAsync_1.default)(async (req, res) => {

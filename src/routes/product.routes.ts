@@ -7,6 +7,7 @@ import {
   updateProduct,
   deleteProduct,
 } from "../controllers/product.controller";
+import { createReview, getProductReviews } from "../controllers/review.controller";
 import { authenticate, authorize } from "../middlewares/auth.middleware";
 import upload from "../middlewares/upload.middleware";
 
@@ -33,5 +34,9 @@ router.patch(
 );
 
 router.delete("/:id", authenticate, authorize("ADMIN", "MANAGER"), deleteProduct);
+
+// Product reviews routing
+router.post("/:id/reviews", authenticate, createReview);
+router.get("/:id/reviews", getProductReviews);
 
 export default router;

@@ -6,6 +6,7 @@ import catchAsync from "../utils/catchAsync";
 import AppError from "../utils/appError";
 import { AuthenticatedRequest } from "../middlewares/auth.middleware";
 import couponService from "../services/coupon.service";
+import paymentService from "../services/payment.service";
 
 const orderItemSchema = z.object({
   variantId: z.string().regex(/^[0-9a-fA-F]{24}$/, "Invalid Variant ID format"),
@@ -25,6 +26,7 @@ const checkoutSchema = z.object({
   items: z.array(orderItemSchema).min(1, "Order must contain at least one item"),
   shippingAddress: shippingAddressSchema,
   paymentMethod: z.enum(["COD", "DIGITAL"]).optional(),
+  paymentGateway: z.enum(["SSLCOMMERZ", "BKASH"]).optional(),
   couponCode: z.string().optional(),
 });
 
@@ -89,7 +91,8 @@ export const createOrder = catchAsync(async (req: AuthenticatedRequest, res: Res
 
     // Call expandable coupon validation service
     const discount = await couponService.validateAndCalculateDiscount(data.couponCode, subtotal);
-    const finalAmount = Math.max(0, subtotal - discount);
+    const shippingFee = data.shippingAddress.state.toLowerCase() === "dhaka" ? 80.0 : 120.0;
+    const finalAmount = Math.max(0, subtotal - discount) + shippingFee;
 
     // Persist final order details
     return tx.order.create({
@@ -103,6 +106,46 @@ export const createOrder = catchAsync(async (req: AuthenticatedRequest, res: Res
       },
     });
   });
+
+  // Handle Payment Gateway Initiation if paymentMethod is DIGITAL
+  if (newOrder.paymentMethod === "DIGITAL") {
+    try {
+      const gateway = data.paymentGateway || "SSLCOMMERZ";
+      let paymentUrl = "";
+
+      if (gateway === "SSLCOMMERZ") {
+        paymentUrl = await paymentService.initiateSSLCommerzPayment(
+          newOrder.id,
+          newOrder.totalAmount,
+          {
+            name: (req.user as any).name || "Customer",
+            email: req.user!.email || "customer@example.com",
+            phone: newOrder.shippingAddress.phone,
+            street: newOrder.shippingAddress.street,
+            city: newOrder.shippingAddress.city,
+            state: newOrder.shippingAddress.state,
+            zipCode: newOrder.shippingAddress.zipCode,
+          }
+        );
+      } else if (gateway === "BKASH") {
+        const bkashRes = await paymentService.createBKashPayment(newOrder.id, newOrder.totalAmount);
+        paymentUrl = bkashRes.bkashURL;
+      }
+
+      return res.status(201).json({
+        status: "success",
+        data: newOrder,
+        paymentUrl,
+      });
+    } catch (err: any) {
+      // Return order but indicate payment initiation failure
+      return res.status(201).json({
+        status: "success",
+        data: newOrder,
+        paymentError: err.message || "Failed to initiate payment gateway",
+      });
+    }
+  }
 
   res.status(201).json({
     status: "success",
@@ -120,10 +163,29 @@ export const getMyOrders = catchAsync(async (req: AuthenticatedRequest, res: Res
     orderBy: { createdAt: "desc" },
   });
 
+  const allVariantIds = Array.from(
+    new Set(orders.flatMap((order) => order.items.map((item) => item.variantId)))
+  );
+
+  const variants = await prisma.productVariant.findMany({
+    where: { id: { in: allVariantIds } },
+    select: { id: true, productId: true },
+  });
+
+  const variantToProductMap = new Map(variants.map((v) => [v.id, v.productId]));
+
+  const ordersWithProductId = orders.map((order) => ({
+    ...order,
+    items: order.items.map((item) => ({
+      ...item,
+      productId: variantToProductMap.get(item.variantId) || null,
+    })),
+  }));
+
   res.status(200).json({
     status: "success",
     results: orders.length,
-    data: orders,
+    data: ordersWithProductId,
   });
 });
 
@@ -152,9 +214,24 @@ export const getOrderById = catchAsync(async (req: AuthenticatedRequest, res: Re
     throw new AppError("You do not have permission to view this order.", 403);
   }
 
+  const variantIds = order.items.map((item) => item.variantId);
+  const variants = await prisma.productVariant.findMany({
+    where: { id: { in: variantIds } },
+    select: { id: true, productId: true },
+  });
+  const variantToProductMap = new Map(variants.map((v) => [v.id, v.productId]));
+
+  const orderWithProductId = {
+    ...order,
+    items: order.items.map((item) => ({
+      ...item,
+      productId: variantToProductMap.get(item.variantId) || null,
+    })),
+  };
+
   res.status(200).json({
     status: "success",
-    data: order,
+    data: orderWithProductId,
   });
 });
 

@@ -20,6 +20,15 @@ app.use(express.urlencoded({ extended: true }));
 
 import prisma from "./config/db";
 
+// Welcome API
+app.get("/", (req, res) => {
+  res.status(200).json({
+    status: "success",
+    message: "Welcome to FARHAD365 API server!",
+    timestamp: new Date(),
+  });
+});
+
 // Health Check API
 app.get("/health", async (req, res) => {
   try {

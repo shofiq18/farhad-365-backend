@@ -25,7 +25,7 @@ const createProductSchema = z.object({
   costPrice: z.preprocess((val) => parseFloat(val as string), z.number().nonnegative("Cost price cannot be negative")),
   discount: z.preprocess((val) => parseFloat(val as string), z.number().min(0).max(100)).optional(),
   categoryId: z.string().regex(/^[0-9a-fA-F]{24}$/, "Invalid Category ID"),
-  targetGroup: z.enum(["MEN", "WOMEN", "KIDS", "UNISEX", "OTHERS"]).optional(),
+  targetGroup: z.enum(["MEN", "WOMEN", "KIDS", "UNISEX", "OTHERS", "SCHOOL", "SPORTS"]).optional(),
   images: z.union([z.string(), z.array(z.string())]).optional(), // handles stringified array or single string from forms
   metadata: z.any().optional(),
   variants: z

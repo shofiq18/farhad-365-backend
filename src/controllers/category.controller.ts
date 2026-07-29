@@ -14,7 +14,7 @@ const categorySchema = z.object({
     .optional()
     .nullable(),
   targetGroups: z
-    .array(z.enum(["MEN", "WOMEN", "KIDS", "UNISEX", "OTHERS"]))
+    .array(z.enum(["MEN", "WOMEN", "KIDS", "UNISEX", "OTHERS", "SCHOOL", "SPORTS"]))
     .optional(),
 });
 

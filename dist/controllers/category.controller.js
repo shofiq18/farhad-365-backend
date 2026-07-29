@@ -18,7 +18,7 @@ const categorySchema = zod_1.z.object({
         .optional()
         .nullable(),
     targetGroups: zod_1.z
-        .array(zod_1.z.enum(["MEN", "WOMEN", "KIDS", "UNISEX", "OTHERS"]))
+        .array(zod_1.z.enum(["MEN", "WOMEN", "KIDS", "UNISEX", "OTHERS", "SCHOOL", "SPORTS"]))
         .optional(),
 });
 const buildCategoryTree = (categories, parentId = null) => {

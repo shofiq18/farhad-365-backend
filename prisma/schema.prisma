@@ -19,7 +19,10 @@ enum TargetGroup {
   KIDS
   UNISEX
   OTHERS
+  SCHOOL
+  SPORTS
 }
+
 
 enum OrderStatus {
   PENDING

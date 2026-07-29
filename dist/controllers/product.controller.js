@@ -27,7 +27,7 @@ const createProductSchema = zod_1.z.object({
     costPrice: zod_1.z.preprocess((val) => parseFloat(val), zod_1.z.number().nonnegative("Cost price cannot be negative")),
     discount: zod_1.z.preprocess((val) => parseFloat(val), zod_1.z.number().min(0).max(100)).optional(),
     categoryId: zod_1.z.string().regex(/^[0-9a-fA-F]{24}$/, "Invalid Category ID"),
-    targetGroup: zod_1.z.enum(["MEN", "WOMEN", "KIDS", "UNISEX", "OTHERS"]).optional(),
+    targetGroup: zod_1.z.enum(["MEN", "WOMEN", "KIDS", "UNISEX", "OTHERS", "SCHOOL", "SPORTS"]).optional(),
     images: zod_1.z.union([zod_1.z.string(), zod_1.z.array(zod_1.z.string())]).optional(), // handles stringified array or single string from forms
     metadata: zod_1.z.any().optional(),
     variants: zod_1.z

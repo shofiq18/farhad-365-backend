@@ -296,7 +296,13 @@ export const updateProduct = catchAsync(async (req: Request, res: Response) => {
     }
   }
 
-  const imageUrls = [...(existingProduct.images || [])];
+  let imageUrls: string[] = [];
+  if (data.images !== undefined) {
+    const rawImages = Array.isArray(data.images) ? data.images : [data.images];
+    imageUrls = rawImages.map(img => img.trim()).filter(Boolean);
+  } else {
+    imageUrls = [...(existingProduct.images || [])];
+  }
 
   // Append new uploads if files exist
   if (req.files && Array.isArray(req.files) && req.files.length > 0) {
@@ -305,14 +311,6 @@ export const updateProduct = catchAsync(async (req: Request, res: Response) => {
     );
     const uploadResults = await Promise.all(uploadPromises);
     imageUrls.push(...uploadResults.map((res) => res.secure_url));
-  }
-
-  if (data.images) {
-    if (Array.isArray(data.images)) {
-      imageUrls.push(...data.images);
-    } else {
-      imageUrls.push(data.images);
-    }
   }
 
   const productSlug = data.slug || (data.title ? slugify(data.title) : undefined);

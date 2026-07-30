@@ -31,6 +31,7 @@ const categoryTree: ParentCategorySeed[] = [
       { name: "Heels", slug: "heels", targetGroups: ["WOMEN"] },
       { name: "Flats", slug: "flats", targetGroups: ["WOMEN"] },
       { name: "Wedges", slug: "wedges", targetGroups: ["WOMEN"] },
+      { name: "School Shoes", slug: "school-shoes", targetGroups: ["SCHOOL", "KIDS", "UNISEX"] },
     ],
   },
   {
@@ -66,6 +67,7 @@ const categoryTree: ParentCategorySeed[] = [
       { name: "Perfumes", slug: "perfumes", targetGroups: ["MEN", "WOMEN", "UNISEX", "OTHERS"] },
       { name: "Sunglasses", slug: "sunglasses", targetGroups: ["MEN", "WOMEN", "UNISEX", "OTHERS"] },
       { name: "Jewelry", slug: "jewelry", targetGroups: ["WOMEN", "OTHERS"] },
+      { name: "School Bags", slug: "school-bags", targetGroups: ["SCHOOL", "KIDS", "UNISEX"] },
     ],
   },
 ];

@@ -18,6 +18,14 @@ app.use((0, cors_1.default)({
 app.use(express_1.default.json());
 app.use(express_1.default.urlencoded({ extended: true }));
 const db_1 = __importDefault(require("./config/db"));
+// Welcome API
+app.get("/", (req, res) => {
+    res.status(200).json({
+        status: "success",
+        message: "Welcome to FARHAD365 API server!",
+        timestamp: new Date(),
+    });
+});
 // Health Check API
 app.get("/health", async (req, res) => {
     try {

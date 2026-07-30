@@ -257,20 +257,19 @@ exports.updateProduct = (0, catchAsync_1.default)(async (req, res) => {
             throw new appError_1.default("Target category does not exist.", 404);
         }
     }
-    const imageUrls = [...(existingProduct.images || [])];
+    let imageUrls = [];
+    if (data.images !== undefined) {
+        const rawImages = Array.isArray(data.images) ? data.images : [data.images];
+        imageUrls = rawImages.map(img => img.trim()).filter(Boolean);
+    }
+    else {
+        imageUrls = [...(existingProduct.images || [])];
+    }
     // Append new uploads if files exist
     if (req.files && Array.isArray(req.files) && req.files.length > 0) {
         const uploadPromises = req.files.map((file) => upload_service_1.default.uploadSingleImage(file.buffer));
         const uploadResults = await Promise.all(uploadPromises);
         imageUrls.push(...uploadResults.map((res) => res.secure_url));
-    }
-    if (data.images) {
-        if (Array.isArray(data.images)) {
-            imageUrls.push(...data.images);
-        }
-        else {
-            imageUrls.push(data.images);
-        }
     }
     const productSlug = data.slug || (data.title ? slugify(data.title) : undefined);
     if (productSlug && productSlug !== existingProduct.slug) {

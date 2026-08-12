@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getAllOrders = exports.updateOrderStatus = exports.getOrderById = exports.getMyOrders = exports.createOrder = void 0;
+exports.reInitiatePayment = exports.getAllOrders = exports.updateOrderStatus = exports.getOrderById = exports.getMyOrders = exports.createOrder = void 0;
 const zod_1 = require("zod");
 const db_1 = __importDefault(require("../config/db"));
 const catchAsync_1 = __importDefault(require("../utils/catchAsync"));
@@ -40,6 +40,7 @@ exports.createOrder = (0, catchAsync_1.default)(async (req, res) => {
     // Execute checkout validation and inventory deduction inside a Prisma transaction
     const newOrder = await db_1.default.$transaction(async (tx) => {
         let subtotal = 0;
+        let eligibleSubtotal = 0;
         const orderItemsPayload = [];
         for (const item of data.items) {
             // Fetch variant and parent product details
@@ -59,6 +60,10 @@ exports.createOrder = (0, catchAsync_1.default)(async (req, res) => {
             const discountedPrice = basePrice * (1 - variant.product.discount / 100);
             const itemTotal = discountedPrice * item.quantity;
             subtotal += itemTotal;
+            // Only items that do not have already existing discounts are eligible for coupon discount
+            if (variant.product.discount === 0) {
+                eligibleSubtotal += itemTotal;
+            }
             // Decrement variant stock
             await tx.productVariant.update({
                 where: { id: variant.id },
@@ -76,9 +81,9 @@ exports.createOrder = (0, catchAsync_1.default)(async (req, res) => {
             });
         }
         // Call expandable coupon validation service
-        const discount = await coupon_service_1.default.validateAndCalculateDiscount(data.couponCode, subtotal);
+        const couponResult = await coupon_service_1.default.validateAndCalculateDiscount(data.couponCode, subtotal, eligibleSubtotal);
         const shippingFee = data.shippingAddress.state.toLowerCase() === "dhaka" ? 80.0 : 120.0;
-        const finalAmount = Math.max(0, subtotal - discount) + shippingFee;
+        const finalAmount = Math.max(0, subtotal - couponResult.discountAmount) + shippingFee;
         // Persist final order details
         return tx.order.create({
             data: {
@@ -88,6 +93,8 @@ exports.createOrder = (0, catchAsync_1.default)(async (req, res) => {
                 shippingAddress: data.shippingAddress,
                 paymentMethod: data.paymentMethod || "COD",
                 status: "PENDING",
+                couponCode: data.couponCode || null,
+                discountAmount: couponResult.discountAmount,
             },
         });
     });
@@ -227,5 +234,49 @@ exports.getAllOrders = (0, catchAsync_1.default)(async (req, res) => {
         status: "success",
         results: orders.length,
         data: orders,
+    });
+});
+exports.reInitiatePayment = (0, catchAsync_1.default)(async (req, res) => {
+    const { id } = req.params;
+    const { paymentGateway } = req.body; // "SSLCOMMERZ" | "BKASH"
+    const order = await db_1.default.order.findUnique({
+        where: { id },
+        include: { user: true },
+    });
+    if (!order) {
+        throw new appError_1.default("Order not found.", 404);
+    }
+    if (order.userId !== req.user.id) {
+        throw new appError_1.default("You are not authorized to pay for this order.", 403);
+    }
+    // Only allow payment for PENDING or CANCELLED orders
+    if (order.status !== "PENDING" && order.status !== "CANCELLED") {
+        throw new appError_1.default("Only pending or cancelled orders can be paid.", 400);
+    }
+    const gateway = paymentGateway || "SSLCOMMERZ";
+    let paymentUrl = "";
+    // Reset status to PENDING when starting payment process
+    await db_1.default.order.update({
+        where: { id },
+        data: { status: "PENDING" },
+    });
+    if (gateway === "SSLCOMMERZ") {
+        paymentUrl = await payment_service_1.default.initiateSSLCommerzPayment(order.id, order.totalAmount, {
+            name: order.user.name || "Customer",
+            email: order.user.email || "customer@example.com",
+            phone: order.shippingAddress.phone,
+            street: order.shippingAddress.street,
+            city: order.shippingAddress.city,
+            state: order.shippingAddress.state,
+            zipCode: order.shippingAddress.zipCode,
+        });
+    }
+    else if (gateway === "BKASH") {
+        const bkashRes = await payment_service_1.default.createBKashPayment(order.id, order.totalAmount);
+        paymentUrl = bkashRes.bkashURL;
+    }
+    res.status(200).json({
+        status: "success",
+        paymentUrl,
     });
 });

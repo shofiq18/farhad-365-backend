@@ -44,6 +44,7 @@ export const createOrder = catchAsync(async (req: AuthenticatedRequest, res: Res
   // Execute checkout validation and inventory deduction inside a Prisma transaction
   const newOrder = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     let subtotal = 0;
+    let eligibleSubtotal = 0;
     const orderItemsPayload = [];
 
     for (const item of data.items) {
@@ -71,6 +72,11 @@ export const createOrder = catchAsync(async (req: AuthenticatedRequest, res: Res
       const itemTotal = discountedPrice * item.quantity;
       subtotal += itemTotal;
 
+      // Only items that do not have already existing discounts are eligible for coupon discount
+      if (variant.product.discount === 0) {
+        eligibleSubtotal += itemTotal;
+      }
+
       // Decrement variant stock
       await tx.productVariant.update({
         where: { id: variant.id },
@@ -90,9 +96,13 @@ export const createOrder = catchAsync(async (req: AuthenticatedRequest, res: Res
     }
 
     // Call expandable coupon validation service
-    const discount = await couponService.validateAndCalculateDiscount(data.couponCode, subtotal);
+    const couponResult = await couponService.validateAndCalculateDiscount(
+      data.couponCode,
+      subtotal,
+      eligibleSubtotal
+    );
     const shippingFee = data.shippingAddress.state.toLowerCase() === "dhaka" ? 80.0 : 120.0;
-    const finalAmount = Math.max(0, subtotal - discount) + shippingFee;
+    const finalAmount = Math.max(0, subtotal - couponResult.discountAmount) + shippingFee;
 
     // Persist final order details
     return tx.order.create({
@@ -103,6 +113,8 @@ export const createOrder = catchAsync(async (req: AuthenticatedRequest, res: Res
         shippingAddress: data.shippingAddress,
         paymentMethod: data.paymentMethod || "COD",
         status: "PENDING",
+        couponCode: data.couponCode || null,
+        discountAmount: couponResult.discountAmount,
       },
     });
   });
@@ -272,5 +284,61 @@ export const getAllOrders = catchAsync(async (req: AuthenticatedRequest, res: Re
     status: "success",
     results: orders.length,
     data: orders,
+  });
+});
+
+export const reInitiatePayment = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
+  const { id } = req.params;
+  const { paymentGateway } = req.body; // "SSLCOMMERZ" | "BKASH"
+
+  const order = await prisma.order.findUnique({
+    where: { id },
+    include: { user: true },
+  });
+
+  if (!order) {
+    throw new AppError("Order not found.", 404);
+  }
+
+  if (order.userId !== req.user!.id) {
+    throw new AppError("You are not authorized to pay for this order.", 403);
+  }
+
+  // Only allow payment for PENDING or CANCELLED orders
+  if (order.status !== "PENDING" && order.status !== "CANCELLED") {
+    throw new AppError("Only pending or cancelled orders can be paid.", 400);
+  }
+
+  const gateway = paymentGateway || "SSLCOMMERZ";
+  let paymentUrl = "";
+
+  // Reset status to PENDING when starting payment process
+  await prisma.order.update({
+    where: { id },
+    data: { status: "PENDING" },
+  });
+
+  if (gateway === "SSLCOMMERZ") {
+    paymentUrl = await paymentService.initiateSSLCommerzPayment(
+      order.id,
+      order.totalAmount,
+      {
+        name: order.user.name || "Customer",
+        email: order.user.email || "customer@example.com",
+        phone: order.shippingAddress.phone,
+        street: order.shippingAddress.street,
+        city: order.shippingAddress.city,
+        state: order.shippingAddress.state,
+        zipCode: order.shippingAddress.zipCode,
+      }
+    );
+  } else if (gateway === "BKASH") {
+    const bkashRes = await paymentService.createBKashPayment(order.id, order.totalAmount);
+    paymentUrl = bkashRes.bkashURL;
+  }
+
+  res.status(200).json({
+    status: "success",
+    paymentUrl,
   });
 });

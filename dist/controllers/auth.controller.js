@@ -64,18 +64,20 @@ exports.login = (0, catchAsync_1.default)(async (req, res) => {
     if (!user || !(await bcryptjs_1.default.compare(data.password, user.password))) {
         throw new appError_1.default("Incorrect email or password.", 401);
     }
+    if (user.isDeleted) {
+        throw new appError_1.default("This account has been suspended. Please contact support.", 401);
+    }
     const token = signToken(user.id, user.email, user.role);
     res.status(200).json({
-        status: "success",
-        token,
+        success: true,
+        message: "Login successful",
         data: {
-            user: {
-                id: user.id,
-                email: user.email,
-                name: user.name,
-                role: user.role,
-            },
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            role: user.role,
         },
+        accessToken: token,
     });
 });
 exports.getMe = (0, catchAsync_1.default)(async (req, res) => {
@@ -83,7 +85,8 @@ exports.getMe = (0, catchAsync_1.default)(async (req, res) => {
         throw new appError_1.default("Authentication required.", 401);
     }
     res.status(200).json({
-        status: "success",
-        data: { user: req.user },
+        success: true,
+        message: "User fetched successfully",
+        data: req.user,
     });
 });

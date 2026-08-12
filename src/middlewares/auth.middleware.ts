@@ -7,8 +7,11 @@ import catchAsync from "../utils/catchAsync";
 export interface AuthenticatedRequest extends Request {
   user?: {
     id: string;
+    name: string;
     email: string;
     role: "USER" | "MANAGER" | "ADMIN";
+    phone?: string | null;
+    profileImage?: string | null;
   };
 }
 
@@ -44,7 +47,7 @@ export const authenticate = catchAsync(
     // Check if user still exists
     const currentUser = await prisma.user.findUnique({
       where: { id: decoded.id },
-      select: { id: true, email: true, role: true },
+      select: { id: true, name: true, email: true, role: true, phone: true, profileImage: true },
     });
 
     if (!currentUser) {
@@ -54,7 +57,7 @@ export const authenticate = catchAsync(
     }
 
     // Attach user payload
-    req.user = currentUser as { id: string; email: string; role: "USER" | "MANAGER" | "ADMIN" };
+    req.user = currentUser as any;
     next();
   }
 );

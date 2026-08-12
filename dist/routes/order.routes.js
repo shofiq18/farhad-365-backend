@@ -10,5 +10,6 @@ router.post("/", order_controller_1.createOrder);
 router.get("/my-orders", order_controller_1.getMyOrders);
 router.get("/", (0, auth_middleware_1.authorize)("ADMIN", "MANAGER"), order_controller_1.getAllOrders);
 router.get("/:id", order_controller_1.getOrderById);
+router.post("/:id/re-initiate-payment", order_controller_1.reInitiatePayment);
 router.patch("/:id/status", (0, auth_middleware_1.authorize)("ADMIN", "MANAGER"), order_controller_1.updateOrderStatus);
 exports.default = router;

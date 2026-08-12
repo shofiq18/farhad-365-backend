@@ -78,19 +78,22 @@ export const login = catchAsync(async (req: Request, res: Response) => {
     throw new AppError("Incorrect email or password.", 401);
   }
 
+  if (user.isDeleted) {
+    throw new AppError("This account has been suspended. Please contact support.", 401);
+  }
+
   const token = signToken(user.id, user.email, user.role);
 
   res.status(200).json({
-    status: "success",
-    token,
+    success: true,
+    message: "Login successful",
     data: {
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        role: user.role,
-      },
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
     },
+    accessToken: token,
   });
 });
 
@@ -100,7 +103,8 @@ export const getMe = catchAsync(async (req: AuthenticatedRequest, res: Response)
   }
 
   res.status(200).json({
-    status: "success",
-    data: { user: req.user },
+    success: true,
+    message: "User fetched successfully",
+    data: req.user,
   });
 });

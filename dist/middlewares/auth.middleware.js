@@ -25,7 +25,7 @@ exports.authenticate = (0, catchAsync_1.default)(async (req, res, next) => {
     // Check if user still exists
     const currentUser = await db_1.default.user.findUnique({
         where: { id: decoded.id },
-        select: { id: true, email: true, role: true },
+        select: { id: true, name: true, email: true, role: true, phone: true, profileImage: true },
     });
     if (!currentUser) {
         return next(new appError_1.default("The user belonging to this token no longer exists.", 401));

@@ -107,6 +107,24 @@ async function main() {
     }
   }
 
+  console.log("Seeding default discount codes...");
+  await prisma.discount.upsert({
+    where: { code: "EID2026" },
+    update: {
+      discountValue: 25.0,
+      type: "PERCENTAGE",
+      minSpend: 5000.0,
+      isActive: true,
+    },
+    create: {
+      code: "EID2026",
+      discountValue: 25.0,
+      type: "PERCENTAGE",
+      minSpend: 5000.0,
+      isActive: true,
+    },
+  });
+
   console.log("Database seeding finished!");
 }
 

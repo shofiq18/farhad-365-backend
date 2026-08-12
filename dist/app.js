@@ -22,7 +22,7 @@ const db_1 = __importDefault(require("./config/db"));
 app.get("/", (req, res) => {
     res.status(200).json({
         status: "success",
-        message: "Welcome to FARHAD365 API server!",
+        message: "Welcome to Pristto API server!",
         timestamp: new Date(),
     });
 });

@@ -9,7 +9,7 @@ exports.uploadService = {
     /**
      * Uploads an image buffer directly to Cloudinary, forcing optimization & conversion to WebP format.
      */
-    async uploadSingleImage(fileBuffer, folder = "farhad365") {
+    async uploadSingleImage(fileBuffer, folder = "pristto") {
         return new Promise((resolve, reject) => {
             const uploadStream = cloudinary_config_1.default.uploader.upload_stream({
                 folder,

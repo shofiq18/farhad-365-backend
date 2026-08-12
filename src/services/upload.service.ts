@@ -7,7 +7,7 @@ export const uploadService = {
    */
   async uploadSingleImage(
     fileBuffer: Buffer,
-    folder: string = "farhad365"
+    folder: string = "pristto"
   ): Promise<UploadApiResponse> {
     return new Promise((resolve, reject) => {
       const uploadStream = cloudinary.uploader.upload_stream(

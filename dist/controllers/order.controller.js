@@ -28,6 +28,7 @@ const checkoutSchema = zod_1.z.object({
     paymentMethod: zod_1.z.enum(["COD", "DIGITAL"]).optional(),
     paymentGateway: zod_1.z.enum(["SSLCOMMERZ", "BKASH"]).optional(),
     couponCode: zod_1.z.string().optional(),
+    giftCardCode: zod_1.z.string().optional(),
 });
 const orderStatusUpdateSchema = zod_1.z.object({
     status: zod_1.z.enum(["PENDING", "PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED"]),
@@ -83,7 +84,33 @@ exports.createOrder = (0, catchAsync_1.default)(async (req, res) => {
         // Call expandable coupon validation service
         const couponResult = await coupon_service_1.default.validateAndCalculateDiscount(data.couponCode, subtotal, eligibleSubtotal);
         const shippingFee = data.shippingAddress.state.toLowerCase() === "dhaka" ? 80.0 : 120.0;
-        const finalAmount = Math.max(0, subtotal - couponResult.discountAmount) + shippingFee;
+        let finalAmount = Math.max(0, subtotal - couponResult.discountAmount) + shippingFee;
+        let appliedGiftCardCode = null;
+        let appliedGiftCardAmount = 0;
+        if (data.giftCardCode && data.giftCardCode.trim() !== "") {
+            const giftCard = await tx.giftCard.findUnique({
+                where: { code: data.giftCardCode.trim().toUpperCase() }
+            });
+            if (!giftCard) {
+                throw new appError_1.default("Invalid gift card code.", 400);
+            }
+            if (!giftCard.isActive) {
+                throw new appError_1.default("This gift card is not active.", 400);
+            }
+            if (giftCard.balance <= 0) {
+                throw new appError_1.default("This gift card has no remaining balance.", 400);
+            }
+            if (giftCard.expiryDate && new Date() > giftCard.expiryDate) {
+                throw new appError_1.default("This gift card has expired.", 400);
+            }
+            appliedGiftCardAmount = Math.min(giftCard.balance, finalAmount);
+            finalAmount = Math.max(0, finalAmount - appliedGiftCardAmount);
+            appliedGiftCardCode = giftCard.code;
+            await tx.giftCard.update({
+                where: { id: giftCard.id },
+                data: { balance: { decrement: appliedGiftCardAmount } }
+            });
+        }
         // Persist final order details
         return tx.order.create({
             data: {
@@ -92,14 +119,16 @@ exports.createOrder = (0, catchAsync_1.default)(async (req, res) => {
                 totalAmount: finalAmount,
                 shippingAddress: data.shippingAddress,
                 paymentMethod: data.paymentMethod || "COD",
-                status: "PENDING",
+                status: finalAmount === 0 ? "PROCESSING" : "PENDING",
                 couponCode: data.couponCode || null,
                 discountAmount: couponResult.discountAmount,
+                giftCardCode: appliedGiftCardCode,
+                giftCardAmount: appliedGiftCardAmount,
             },
         });
     });
     // Handle Payment Gateway Initiation if paymentMethod is DIGITAL
-    if (newOrder.paymentMethod === "DIGITAL") {
+    if (newOrder.paymentMethod === "DIGITAL" && newOrder.totalAmount > 0) {
         try {
             const gateway = data.paymentGateway || "SSLCOMMERZ";
             let paymentUrl = "";
@@ -152,8 +181,14 @@ exports.getMyOrders = (0, catchAsync_1.default)(async (req, res) => {
         select: { id: true, productId: true },
     });
     const variantToProductMap = new Map(variants.map((v) => [v.id, v.productId]));
+    const appliedGiftCardCodes = Array.from(new Set(orders.map((o) => o.giftCardCode).filter(Boolean)));
+    const appliedGiftCards = await db_1.default.giftCard.findMany({
+        where: { code: { in: appliedGiftCardCodes } },
+    });
+    const appliedGiftCardMap = new Map(appliedGiftCards.map((gc) => [gc.code, gc]));
     const ordersWithProductId = orders.map((order) => ({
         ...order,
+        appliedGiftCardDetails: order.giftCardCode ? appliedGiftCardMap.get(order.giftCardCode) || null : null,
         items: order.items.map((item) => ({
             ...item,
             productId: variantToProductMap.get(item.variantId) || null,
@@ -176,6 +211,7 @@ exports.getOrderById = (0, catchAsync_1.default)(async (req, res) => {
             user: {
                 select: { id: true, name: true, email: true, role: true },
             },
+            giftCard: true,
         },
     });
     if (!order) {
@@ -191,8 +227,15 @@ exports.getOrderById = (0, catchAsync_1.default)(async (req, res) => {
         select: { id: true, productId: true },
     });
     const variantToProductMap = new Map(variants.map((v) => [v.id, v.productId]));
+    let appliedGiftCardDetails = null;
+    if (order.giftCardCode) {
+        appliedGiftCardDetails = await db_1.default.giftCard.findUnique({
+            where: { code: order.giftCardCode },
+        });
+    }
     const orderWithProductId = {
         ...order,
+        appliedGiftCardDetails,
         items: order.items.map((item) => ({
             ...item,
             productId: variantToProductMap.get(item.variantId) || null,
@@ -227,13 +270,23 @@ exports.getAllOrders = (0, catchAsync_1.default)(async (req, res) => {
         include: {
             user: {
                 select: { id: true, name: true, email: true }
-            }
+            },
+            giftCard: true,
         }
     });
+    const appliedGiftCardCodes = Array.from(new Set(orders.map((o) => o.giftCardCode).filter(Boolean)));
+    const appliedGiftCards = await db_1.default.giftCard.findMany({
+        where: { code: { in: appliedGiftCardCodes } },
+    });
+    const appliedGiftCardMap = new Map(appliedGiftCards.map((gc) => [gc.code, gc]));
+    const ordersWithGiftCards = orders.map((order) => ({
+        ...order,
+        appliedGiftCardDetails: order.giftCardCode ? appliedGiftCardMap.get(order.giftCardCode) || null : null,
+    }));
     res.status(200).json({
         status: "success",
         results: orders.length,
-        data: orders,
+        data: ordersWithGiftCards,
     });
 });
 exports.reInitiatePayment = (0, catchAsync_1.default)(async (req, res) => {

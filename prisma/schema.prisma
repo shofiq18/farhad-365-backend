@@ -37,18 +37,23 @@ enum PaymentMethod {
 }
 
 model User {
-  id        String   @id @default(auto()) @map("_id") @db.ObjectId
-  email     String   @unique
-  password  String
-  name      String
-  role      Role     @default(USER)
-  phone     String?
-  profileImage String?
-  isDeleted Boolean  @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  orders    Order[]
-  reviews   Review[]
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  email         String   @unique
+  password      String
+  name          String
+  role          Role     @default(USER)
+  phone         String?
+  profileImage  String?
+  isDeleted     Boolean  @default(false)
+  otp           String?
+  otpExpiresAt  DateTime?
+  resetToken    String?
+  resetExpires  DateTime?
+  isVerified    Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  orders        Order[]
+  reviews       Review[]
 }
 
 model Category {
@@ -116,6 +121,9 @@ model Order {
   status          OrderStatus     @default(PENDING)
   couponCode      String?
   discountAmount  Float           @default(0)
+  giftCardCode    String?
+  giftCardAmount  Float           @default(0)
+  giftCard        GiftCard?
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 
@@ -212,4 +220,20 @@ model ContentSetting {
   key       String   @unique
   value     String
   updatedAt DateTime @updatedAt
+}
+
+model GiftCard {
+  id             String    @id @default(auto()) @map("_id") @db.ObjectId
+  code           String    @unique
+  initialBalance Float
+  balance        Float
+  recipientEmail String
+  senderName     String
+  message        String?
+  isActive       Boolean   @default(false)
+  expiryDate     DateTime?
+  orderId        String?   @db.ObjectId @unique
+  order          Order?    @relation(fields: [orderId], references: [id])
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 }

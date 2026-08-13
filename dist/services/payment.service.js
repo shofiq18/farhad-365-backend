@@ -5,15 +5,23 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const dotenv_1 = __importDefault(require("dotenv"));
 dotenv_1.default.config();
+// Helper to check for placeholder credentials and fall back to sandbox defaults
+const getEnvValue = (key, fallback) => {
+    const val = process.env[key];
+    if (!val || val.trim() === "" || val.includes("your_real") || val.includes("your-real")) {
+        return fallback;
+    }
+    return val;
+};
 // SSLCommerz Credentials
 const SSL_STORE_ID = process.env.SSL_STORE_ID || "testbox";
 const SSL_STORE_PASSWORD = process.env.SSL_STORE_PASSWORD || "testbox_passwd";
 const SSL_IS_LIVE = process.env.SSL_IS_LIVE === "true"; // false for sandbox
-// bKash Sandbox Default Public Test Credentials (if not set in .env)
-const BKASH_USERNAME = process.env.BKASH_USERNAME || "sandboxTokenizedUser02";
-const BKASH_PASSWORD = process.env.BKASH_PASSWORD || "sandboxTokenizedUser02@12345";
-const BKASH_APP_KEY = process.env.BKASH_APP_KEY || "4f6o0cjiki2rfm34kfdadl1eqq";
-const BKASH_APP_SECRET = process.env.BKASH_APP_SECRET || "2is7hdktrekvrbljjh44ll3d9l1dtjo4pasmjvs5vl5qr3fug4b";
+// bKash Sandbox Default Public Test Credentials (if not set or using placeholders in .env)
+const BKASH_USERNAME = getEnvValue("BKASH_USERNAME", "sandboxTokenizedUser02");
+const BKASH_PASSWORD = getEnvValue("BKASH_PASSWORD", "sandboxTokenizedUser02@12345");
+const BKASH_APP_KEY = getEnvValue("BKASH_APP_KEY", "4f6o0cjiki2rfm34kfdadl1eqq");
+const BKASH_APP_SECRET = getEnvValue("BKASH_APP_SECRET", "2is7hdktrekvrbljjh44ll3d9l1dtjo4pasmjvs5vl5qr3fug4b");
 const BKASH_IS_LIVE = process.env.BKASH_IS_LIVE === "true"; // false for sandbox
 const SSL_API_URL = SSL_IS_LIVE
     ? "https://header.pay.sslcommerz.com/gwprocess/v4/api.php"
@@ -22,6 +30,36 @@ const BKASH_API_URL = BKASH_IS_LIVE
     ? "https://tokenized.pay.bka.sh/v1.2.0-beta/tokenized/checkout"
     : "https://tokenized.sandbox.bka.sh/v1.2.0-beta/tokenized/checkout";
 class PaymentService {
+    /**
+     * Helper to parse JSON safely, escaping raw control characters inside strings.
+     * This handles bKash API sandbox bugs where error messages contain unescaped raw newlines.
+     */
+    async safeParseJson(response) {
+        const text = await response.text();
+        try {
+            return JSON.parse(text);
+        }
+        catch (err) {
+            // Escape raw control characters inside string literals (RFC 8259)
+            const sanitized = text.replace(/"([^"\\]|\\.)*"/g, (match) => {
+                return match.replace(/[\x00-\x1F]/g, (ctrl) => {
+                    if (ctrl === "\n")
+                        return "\\n";
+                    if (ctrl === "\r")
+                        return "\\r";
+                    if (ctrl === "\t")
+                        return "\\t";
+                    return "";
+                });
+            });
+            try {
+                return JSON.parse(sanitized);
+            }
+            catch (e) {
+                throw new Error(`Invalid JSON response from gateway: ${text}`);
+            }
+        }
+    }
     /**
      * Initialize SSLCommerz Payment Session
      */
@@ -62,7 +100,7 @@ class PaymentService {
         if (!response.ok) {
             throw new Error(`SSLCommerz init failed with HTTP ${response.status}`);
         }
-        const data = await response.json();
+        const data = await this.safeParseJson(response);
         if (data.status === "SUCCESS" && data.GatewayPageURL) {
             return data.GatewayPageURL;
         }
@@ -89,12 +127,12 @@ class PaymentService {
         if (!response.ok) {
             throw new Error(`bKash Token Grant failed with HTTP ${response.status}`);
         }
-        const data = await response.json();
+        const data = await this.safeParseJson(response);
         if (data.id_token) {
             return data.id_token;
         }
         else {
-            throw new Error(data.errorMessage || "Failed to get bKash token");
+            throw new Error(data.statusMessage || data.errorMessage || "Failed to get bKash token");
         }
     }
     /**
@@ -122,12 +160,12 @@ class PaymentService {
         if (!response.ok) {
             throw new Error(`bKash Create Payment failed with HTTP ${response.status}`);
         }
-        const data = await response.json();
+        const data = await this.safeParseJson(response);
         if (data.bkashURL && data.paymentID) {
             return { bkashURL: data.bkashURL, paymentID: data.paymentID };
         }
         else {
-            throw new Error(data.errorMessage || "Failed to create bKash payment");
+            throw new Error(data.statusMessage || data.errorMessage || "Failed to create bKash payment");
         }
     }
     /**
@@ -149,7 +187,7 @@ class PaymentService {
         if (!response.ok) {
             throw new Error(`bKash Execute Payment failed with HTTP ${response.status}`);
         }
-        return response.json();
+        return this.safeParseJson(response);
     }
 }
 exports.default = new PaymentService();

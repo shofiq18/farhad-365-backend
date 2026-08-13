@@ -28,6 +28,7 @@ const checkoutSchema = z.object({
   paymentMethod: z.enum(["COD", "DIGITAL"]).optional(),
   paymentGateway: z.enum(["SSLCOMMERZ", "BKASH"]).optional(),
   couponCode: z.string().optional(),
+  giftCardCode: z.string().optional(),
 });
 
 const orderStatusUpdateSchema = z.object({
@@ -102,7 +103,37 @@ export const createOrder = catchAsync(async (req: AuthenticatedRequest, res: Res
       eligibleSubtotal
     );
     const shippingFee = data.shippingAddress.state.toLowerCase() === "dhaka" ? 80.0 : 120.0;
-    const finalAmount = Math.max(0, subtotal - couponResult.discountAmount) + shippingFee;
+    let finalAmount = Math.max(0, subtotal - couponResult.discountAmount) + shippingFee;
+
+    let appliedGiftCardCode = null;
+    let appliedGiftCardAmount = 0;
+
+    if (data.giftCardCode && data.giftCardCode.trim() !== "") {
+      const giftCard = await tx.giftCard.findUnique({
+        where: { code: data.giftCardCode.trim().toUpperCase() }
+      });
+      if (!giftCard) {
+        throw new AppError("Invalid gift card code.", 400);
+      }
+      if (!giftCard.isActive) {
+        throw new AppError("This gift card is not active.", 400);
+      }
+      if (giftCard.balance <= 0) {
+        throw new AppError("This gift card has no remaining balance.", 400);
+      }
+      if (giftCard.expiryDate && new Date() > giftCard.expiryDate) {
+        throw new AppError("This gift card has expired.", 400);
+      }
+
+      appliedGiftCardAmount = Math.min(giftCard.balance, finalAmount);
+      finalAmount = Math.max(0, finalAmount - appliedGiftCardAmount);
+      appliedGiftCardCode = giftCard.code;
+
+      await tx.giftCard.update({
+        where: { id: giftCard.id },
+        data: { balance: { decrement: appliedGiftCardAmount } }
+      });
+    }
 
     // Persist final order details
     return tx.order.create({
@@ -112,15 +143,17 @@ export const createOrder = catchAsync(async (req: AuthenticatedRequest, res: Res
         totalAmount: finalAmount,
         shippingAddress: data.shippingAddress,
         paymentMethod: data.paymentMethod || "COD",
-        status: "PENDING",
+        status: finalAmount === 0 ? "PROCESSING" : "PENDING",
         couponCode: data.couponCode || null,
         discountAmount: couponResult.discountAmount,
+        giftCardCode: appliedGiftCardCode,
+        giftCardAmount: appliedGiftCardAmount,
       },
     });
   });
 
   // Handle Payment Gateway Initiation if paymentMethod is DIGITAL
-  if (newOrder.paymentMethod === "DIGITAL") {
+  if (newOrder.paymentMethod === "DIGITAL" && newOrder.totalAmount > 0) {
     try {
       const gateway = data.paymentGateway || "SSLCOMMERZ";
       let paymentUrl = "";
@@ -183,11 +216,19 @@ export const getMyOrders = catchAsync(async (req: AuthenticatedRequest, res: Res
     where: { id: { in: allVariantIds } },
     select: { id: true, productId: true },
   });
-
   const variantToProductMap = new Map(variants.map((v) => [v.id, v.productId]));
+
+  const appliedGiftCardCodes = Array.from(
+    new Set(orders.map((o) => o.giftCardCode).filter(Boolean) as string[])
+  );
+  const appliedGiftCards = await prisma.giftCard.findMany({
+    where: { code: { in: appliedGiftCardCodes } },
+  });
+  const appliedGiftCardMap = new Map(appliedGiftCards.map((gc) => [gc.code, gc]));
 
   const ordersWithProductId = orders.map((order) => ({
     ...order,
+    appliedGiftCardDetails: order.giftCardCode ? appliedGiftCardMap.get(order.giftCardCode) || null : null,
     items: order.items.map((item) => ({
       ...item,
       productId: variantToProductMap.get(item.variantId) || null,
@@ -214,6 +255,7 @@ export const getOrderById = catchAsync(async (req: AuthenticatedRequest, res: Re
       user: {
         select: { id: true, name: true, email: true, role: true },
       },
+      giftCard: true,
     },
   });
 
@@ -233,8 +275,16 @@ export const getOrderById = catchAsync(async (req: AuthenticatedRequest, res: Re
   });
   const variantToProductMap = new Map(variants.map((v) => [v.id, v.productId]));
 
+  let appliedGiftCardDetails = null;
+  if (order.giftCardCode) {
+    appliedGiftCardDetails = await prisma.giftCard.findUnique({
+      where: { code: order.giftCardCode },
+    });
+  }
+
   const orderWithProductId = {
     ...order,
+    appliedGiftCardDetails,
     items: order.items.map((item) => ({
       ...item,
       productId: variantToProductMap.get(item.variantId) || null,
@@ -276,14 +326,28 @@ export const getAllOrders = catchAsync(async (req: AuthenticatedRequest, res: Re
     include: {
       user: {
         select: { id: true, name: true, email: true }
-      }
+      },
+      giftCard: true,
     }
   });
+
+  const appliedGiftCardCodes = Array.from(
+    new Set(orders.map((o) => o.giftCardCode).filter(Boolean) as string[])
+  );
+  const appliedGiftCards = await prisma.giftCard.findMany({
+    where: { code: { in: appliedGiftCardCodes } },
+  });
+  const appliedGiftCardMap = new Map(appliedGiftCards.map((gc) => [gc.code, gc]));
+
+  const ordersWithGiftCards = orders.map((order) => ({
+    ...order,
+    appliedGiftCardDetails: order.giftCardCode ? appliedGiftCardMap.get(order.giftCardCode) || null : null,
+  }));
 
   res.status(200).json({
     status: "success",
     results: orders.length,
-    data: orders,
+    data: ordersWithGiftCards,
   });
 });
 

@@ -25,8 +25,10 @@ const shippingAddressSchema = z.object({
 const checkoutSchema = z.object({
   items: z.array(orderItemSchema).min(1, "Order must contain at least one item"),
   shippingAddress: shippingAddressSchema,
-  paymentMethod: z.enum(["COD", "DIGITAL"]).optional(),
+  paymentMethod: z.enum(["COD", "DIGITAL", "BKASH"]).optional(),
   paymentGateway: z.enum(["SSLCOMMERZ", "BKASH"]).optional(),
+  bkashNumber: z.string().optional(),
+  bkashTrxId: z.string().optional(),
   couponCode: z.string().optional(),
   giftCardCode: z.string().optional(),
 });
@@ -102,7 +104,22 @@ export const createOrder = catchAsync(async (req: AuthenticatedRequest, res: Res
       subtotal,
       eligibleSubtotal
     );
-    const shippingFee = data.shippingAddress.state.toLowerCase() === "dhaka" ? 80.0 : 120.0;
+
+    // Fetch site content settings for dynamic shipping & free shipping threshold sync
+    const allSettings = await tx.contentSetting.findMany();
+    const settingsMap: Record<string, string> = {};
+    for (const settingItem of allSettings) {
+      settingsMap[settingItem.key] = settingItem.value;
+    }
+
+    const freeShippingThreshold = settingsMap.free_shipping_threshold ? parseFloat(settingsMap.free_shipping_threshold) : 1000;
+    const insideDhakaFee = settingsMap.inside_dhaka_shipping ? parseFloat(settingsMap.inside_dhaka_shipping) : 80;
+    const outsideDhakaFee = settingsMap.outside_dhaka_shipping ? parseFloat(settingsMap.outside_dhaka_shipping) : 120;
+
+    const isFreeShipping = subtotal >= freeShippingThreshold;
+    const isDhaka = data.shippingAddress.state.toLowerCase() === "dhaka" || data.shippingAddress.city.toLowerCase() === "dhaka";
+    const shippingFee = isFreeShipping ? 0.0 : (isDhaka ? insideDhakaFee : outsideDhakaFee);
+
     let finalAmount = Math.max(0, subtotal - couponResult.discountAmount) + shippingFee;
 
     let appliedGiftCardCode = null;
@@ -135,6 +152,16 @@ export const createOrder = catchAsync(async (req: AuthenticatedRequest, res: Res
       });
     }
 
+    const selectedPaymentMethod = data.paymentMethod || "COD";
+    if (selectedPaymentMethod === "BKASH") {
+      if (!data.bkashNumber || !data.bkashNumber.trim()) {
+        throw new AppError("bKash Sender Phone Number is required for bKash payment.", 400);
+      }
+      if (!data.bkashTrxId || !data.bkashTrxId.trim()) {
+        throw new AppError("bKash Transaction ID (TrxID) is required for bKash payment.", 400);
+      }
+    }
+
     // Persist final order details
     return tx.order.create({
       data: {
@@ -142,7 +169,9 @@ export const createOrder = catchAsync(async (req: AuthenticatedRequest, res: Res
         items: orderItemsPayload,
         totalAmount: finalAmount,
         shippingAddress: data.shippingAddress,
-        paymentMethod: data.paymentMethod || "COD",
+        paymentMethod: selectedPaymentMethod as any,
+        bkashNumber: selectedPaymentMethod === "BKASH" ? (data.bkashNumber?.trim() || null) : null,
+        bkashTrxId: selectedPaymentMethod === "BKASH" ? (data.bkashTrxId?.trim() || null) : null,
         status: finalAmount === 0 ? "PROCESSING" : "PENDING",
         couponCode: data.couponCode || null,
         discountAmount: couponResult.discountAmount,
@@ -172,10 +201,19 @@ export const createOrder = catchAsync(async (req: AuthenticatedRequest, res: Res
             zipCode: newOrder.shippingAddress.zipCode,
           }
         );
-      } else if (gateway === "BKASH") {
+      }
+      /*
+      // =========================================================================
+      // AUTOMATED BKASH PAYMENT GATEWAY (SANDBOX / PRODUCTION API)
+      // Currently commented out for manual bKash transfer mode.
+      // Uncomment this block and set production credentials in .env when
+      // live bKash Merchant account services are activated.
+      // =========================================================================
+      else if (gateway === "BKASH") {
         const bkashRes = await paymentService.createBKashPayment(newOrder.id, newOrder.totalAmount);
         paymentUrl = bkashRes.bkashURL;
       }
+      */
 
       return res.status(201).json({
         status: "success",
@@ -396,10 +434,18 @@ export const reInitiatePayment = catchAsync(async (req: AuthenticatedRequest, re
         zipCode: order.shippingAddress.zipCode,
       }
     );
-  } else if (gateway === "BKASH") {
+  }
+  /*
+  // =========================================================================
+  // AUTOMATED BKASH PAYMENT RE-INITIATION (SANDBOX / PRODUCTION API)
+  // Currently commented out for manual bKash transfer mode.
+  // Uncomment when automated bKash merchant gateway is live.
+  // =========================================================================
+  else if (gateway === "BKASH") {
     const bkashRes = await paymentService.createBKashPayment(order.id, order.totalAmount);
     paymentUrl = bkashRes.bkashURL;
   }
+  */
 
   res.status(200).json({
     status: "success",

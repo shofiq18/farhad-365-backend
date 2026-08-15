@@ -34,6 +34,7 @@ enum OrderStatus {
 enum PaymentMethod {
   COD
   DIGITAL
+  BKASH
 }
 
 model User {
@@ -118,6 +119,8 @@ model Order {
   totalAmount     Float
   shippingAddress ShippingAddress
   paymentMethod   PaymentMethod   @default(COD)
+  bkashNumber     String?
+  bkashTrxId      String?
   status          OrderStatus     @default(PENDING)
   couponCode      String?
   discountAmount  Float           @default(0)

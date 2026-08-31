@@ -1,4 +1,5 @@
-﻿import nodemailer from "nodemailer";
+import nodemailer from "nodemailer";
+import AppError from "./appError";
 
 export interface SendEmailOptions {
   to: string;
@@ -30,19 +31,30 @@ export const sendEmail = async (options: SendEmailOptions) => {
       port,
       secure,
       auth: { user, pass },
+      tls: {
+        rejectUnauthorized: false,
+      },
     });
 
+    const fromName = process.env.EMAIL_FROM_NAME || process.env.SMTP_FROM_NAME || "Pristto";
+    const fromEmail = process.env.EMAIL_FROM_EMAIL || process.env.SMTP_FROM_EMAIL || user;
+
     const mailOptions = {
-      from: `"${process.env.EMAIL_FROM_NAME || process.env.SMTP_FROM_NAME || "Pristto"}" <${process.env.EMAIL_FROM_EMAIL || process.env.SMTP_FROM_EMAIL || user}>`,
+      from: `"${fromName}" <${fromEmail}>`,
       to: options.to,
       subject: options.subject,
       html: options.html,
     };
 
-    await transporter.sendMail(mailOptions);
-    console.log(`Email successfully sent to ${options.to}`);
-  } catch (error) {
+    const info = await transporter.sendMail(mailOptions);
+    console.log(`Email successfully sent to ${options.to} (MessageId: ${info.messageId})`);
+    return info;
+  } catch (error: any) {
     console.error(`Failed to send email to ${options.to}:`, error);
+    throw new AppError(
+      `Email delivery failed: ${error?.message || "Internal Mail Server Error"}`,
+      500
+    );
   }
 };
 

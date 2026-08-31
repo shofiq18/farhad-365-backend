@@ -45,7 +45,10 @@ exports.resendOtp = (0, catchAsync_1.default)(async (req, res) => {
     if (!email) {
         throw new appError_1.default("Email is required.", 400);
     }
-    const user = await db_1.default.user.findUnique({ where: { email } });
+    const cleanEmail = email.toLowerCase().trim();
+    const user = await db_1.default.user.findFirst({
+        where: { email: { equals: cleanEmail, mode: "insensitive" } },
+    });
     if (!user) {
         throw new appError_1.default("User not found.", 404);
     }
@@ -59,7 +62,7 @@ exports.resendOtp = (0, catchAsync_1.default)(async (req, res) => {
         },
     });
     await (0, sendEmail_1.default)({
-        to: email,
+        to: user.email,
         subject: "Your OTP Verification Code - Pristto",
         html: (0, emailTemplates_1.generateOtpEmailTemplate)({
             title: "Verification Code",

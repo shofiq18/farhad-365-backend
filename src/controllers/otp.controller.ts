@@ -50,7 +50,11 @@ export const resendOtp = catchAsync(async (req: Request, res: Response) => {
     throw new AppError("Email is required.", 400);
   }
 
-  const user = await prisma.user.findUnique({ where: { email } });
+  const cleanEmail = email.toLowerCase().trim();
+
+  const user = await prisma.user.findFirst({
+    where: { email: { equals: cleanEmail, mode: "insensitive" } },
+  });
   if (!user) {
     throw new AppError("User not found.", 404);
   }
@@ -67,7 +71,7 @@ export const resendOtp = catchAsync(async (req: Request, res: Response) => {
   });
 
   await sendEmail({
-    to: email,
+    to: user.email,
     subject: "Your OTP Verification Code - Pristto",
     html: generateOtpEmailTemplate({
       title: "Verification Code",

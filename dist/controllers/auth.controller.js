@@ -139,7 +139,7 @@ exports.forgotPassword = (0, catchAsync_1.default)(async (req, res) => {
         },
     });
     await (0, sendEmail_1.default)({
-        to: email,
+        to: cleanEmail,
         subject: "Reset Your Password - Pristto",
         html: (0, emailTemplates_1.generateOtpEmailTemplate)({
             title: "Password Reset Request",

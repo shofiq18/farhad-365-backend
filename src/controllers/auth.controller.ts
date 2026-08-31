@@ -165,7 +165,7 @@ export const forgotPassword = catchAsync(async (req: Request, res: Response) => 
   });
 
   await sendEmail({
-    to: email,
+    to: cleanEmail,
     subject: "Reset Your Password - Pristto",
     html: generateOtpEmailTemplate({
       title: "Password Reset Request",

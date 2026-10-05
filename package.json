@@ -4,9 +4,9 @@
   "description": "E-Commerce Node.js Express API with Prisma & MongoDB",
   "main": "dist/server.js",
   "scripts": {
-    "dev": "nodemon src/server.ts",
-    "build": "prisma generate && tsc",
-    "start": "node dist/server.js",
+    "dev": "node api.js && nodemon src/server.ts",
+    "build": "node api.js && prisma generate && tsc",
+    "start": "node api.js && node dist/server.js",
     "postinstall": "prisma generate",
     "prisma:generate": "prisma generate",
     "prisma:db-push": "prisma db push",

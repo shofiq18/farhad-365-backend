@@ -73,14 +73,8 @@ exports.getProducts = (0, catchAsync_1.default)(async (req, res) => {
         }
     }
     if (targetGroup) {
-        if (targetGroup === "MEN") {
-            where.targetGroup = { in: ["MEN", "UNISEX"] };
-        }
-        else if (targetGroup === "WOMEN") {
-            where.targetGroup = { in: ["WOMEN", "UNISEX"] };
-        }
-        else if (targetGroup === "KIDS") {
-            where.targetGroup = { in: ["KIDS", "UNISEX"] };
+        if (Array.isArray(targetGroup)) {
+            where.targetGroup = { in: targetGroup };
         }
         else {
             where.targetGroup = targetGroup;

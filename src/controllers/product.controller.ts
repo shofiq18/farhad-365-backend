@@ -80,12 +80,8 @@ export const getProducts = catchAsync(async (req: Request, res: Response) => {
   }
 
   if (targetGroup) {
-    if (targetGroup === "MEN") {
-      where.targetGroup = { in: ["MEN", "UNISEX"] };
-    } else if (targetGroup === "WOMEN") {
-      where.targetGroup = { in: ["WOMEN", "UNISEX"] };
-    } else if (targetGroup === "KIDS") {
-      where.targetGroup = { in: ["KIDS", "UNISEX"] };
+    if (Array.isArray(targetGroup)) {
+      where.targetGroup = { in: targetGroup };
     } else {
       where.targetGroup = targetGroup;
     }
